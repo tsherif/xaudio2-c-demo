@@ -123,7 +123,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
     // Set up window
     ///////////////////////////////////////////////////////////
 
-    const char WIN_CLASS_NAME[] = "XAUDIO_DEMO_WINDOW_CLASS"; 
+    const char WIN_CLASS_NAME[] = "XAUDIO2_DEMO_WINDOW_CLASS"; 
 
     WNDCLASSEX winClass = {
         .cbSize = sizeof(winClass),
