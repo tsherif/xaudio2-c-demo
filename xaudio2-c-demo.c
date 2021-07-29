@@ -276,7 +276,7 @@ AudioData loadAudioData(void) {
     AudioData result = { 0 };
 
     HANDLE audioFile = CreateFileA(
-      "Jump6.wav",
+      "sound.wav",
       GENERIC_READ,
       FILE_SHARE_READ,
       NULL,
