@@ -32,6 +32,12 @@ IXAudio2SourceVoice* xaudioSourceVoice;
 XAUDIO2_BUFFER xaudioBuffer;
 bool audioBusy;
 
+///////////////////////////////////////////////////////////
+// Set up callbacks for our source voice to track when it
+// finishes playing. We need to define all the callbacks,
+// so the rest are just stubs.
+///////////////////////////////////////////////////////////
+
 void OnBufferEnd(IXAudio2VoiceCallback* This, void* pBufferContext)    {
     audioBusy = false;
 }
@@ -43,6 +49,12 @@ void OnBufferStart(IXAudio2VoiceCallback* This, void* pBufferContext) { }
 void OnLoopEnd(IXAudio2VoiceCallback* This, void* pBufferContext) { }
 void OnVoiceError(IXAudio2VoiceCallback* This, void* pBufferContext, HRESULT Error) { }
 
+///////////////////////////////////////////////////////////////
+// The trick to setting up callbacks in C is that the function
+// pointers go in the 'lpVtbl' property, which is of type 
+// IXAudio2VoiceCallbackVtbl*. (In C++, this is done by
+// inheriting from IXAudio2VoiceCallback.)
+///////////////////////////////////////////////////////////
 IXAudio2VoiceCallback xAudioCallbacks = {
     .lpVtbl = &(IXAudio2VoiceCallbackVtbl) {
         .OnStreamEnd = OnStreamEnd,
@@ -63,8 +75,20 @@ typedef struct {
 
 AudioData loadAudioData(void);
 
+///////////////////////////////////////////////////////////
+// Play a sound by submitting an XAUDIO_BUFFER to the 
+// source voice.
+///////////////////////////////////////////////////////////
 void playSound() {
     if (!audioBusy) {
+        ///////////////////////////////////////////////////////////
+        // This is the general pattern when using XAudio2 (or
+        // anything COM) in C. These are macros that have names
+        // similar to the C++ names seen on MSDN, e.g. 
+        // IXAudio2SourceVoice::SubmitSourceBuffer becomes
+        // IXAudio2SourceVoice_SubmitSourceBuffer and takes the 
+        // IXAudio2SourceVoice pointer as its first argument.
+        ///////////////////////////////////////////////////////////
         IXAudio2SourceVoice_SubmitSourceBuffer(xaudioSourceVoice, &xaudioBuffer, NULL);
         audioBusy = true;
     }
@@ -72,6 +96,7 @@ void playSound() {
 
 LRESULT CALLBACK winProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+        case WM_LBUTTONDOWN:
         case WM_KEYDOWN: {
             playSound();
             return 0;
@@ -79,7 +104,7 @@ LRESULT CALLBACK winProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(window, &ps);
-            char text[] = "Press any key to play a sound!";
+            char text[] = "Press any key or click mouse to play a sound!";
             TextOut(hdc, 20, 20, text, sizeof(text) - 1);
             EndPaint(window, &ps);
             return 0;
@@ -94,6 +119,10 @@ LRESULT CALLBACK winProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam
 }
 
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int showWindow) {
+    ///////////////////////////////////////////////////////////
+    // Set up window
+    ///////////////////////////////////////////////////////////
+
     const char WIN_CLASS_NAME[] = "XAUDIO_DEMO_WINDOW_CLASS"; 
 
     WNDCLASSEX winClass = {
@@ -113,10 +142,6 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
 
         return 1;
     }
-
-    ////////////////////////////////////////////////////////////////////
-    // Create a dummy window so we can get WGL extension functions
-    ////////////////////////////////////////////////////////////////////
 
     HWND window = CreateWindow(
         WIN_CLASS_NAME,
@@ -139,12 +164,18 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
     }
 
     HRESULT comResult;
+    ///////////////////////////////////////////////////////////
+    // Initialize COM
+    ///////////////////////////////////////////////////////////
     comResult = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     if (FAILED(comResult)) {
         MessageBox(NULL, "Failed to initialize COM!", "FAILURE", MB_OK);
         return 1;
     }
 
+    ///////////////////////////////////////////////////////////
+    // Initialize XAudio
+    ///////////////////////////////////////////////////////////
     comResult = XAudio2Create(&xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR );
 
     if (FAILED(comResult)) {
@@ -152,6 +183,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
         return 1;
     }
 
+    ///////////////////////////////////////////////////////////
+    // Initialize XAudio mastering voice. 
+    // This is the single "sink" in the audio graph, where 
+    // everything is mixed before being sent out to the device.
+    ///////////////////////////////////////////////////////////
     comResult = IXAudio2_CreateMasteringVoice(
         xaudio,
         &xaudioMasterVoice,
@@ -168,6 +204,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
         return 1;
     }
 
+    ///////////////////////////////////////////////////////////
+    // Load audio data from sample wave file.
+    ///////////////////////////////////////////////////////////
     AudioData audioData = loadAudioData();
 
     if (!audioData.data) {
@@ -175,6 +214,10 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
         return 1;
     }
 
+    ///////////////////////////////////////////////////////////
+    // Initialize XAudio source voice.
+    // Source voices are where data enters the audio graph.
+    ///////////////////////////////////////////////////////////
     comResult = IXAudio2_CreateSourceVoice(
         xaudio,
         &xaudioSourceVoice,
@@ -191,16 +234,26 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
         return 1;
     }
 
+    ///////////////////////////////////////////////////////////
+    // Start the XAudio source voice.
+    // It is now ready to process the data we submit.
+    ///////////////////////////////////////////////////////////
     IXAudio2SourceVoice_Start(xaudioSourceVoice, 0, XAUDIO2_COMMIT_NOW);
 
+    ///////////////////////////////////////////////////////////
+    // The XAUDIO_BUFFER is where we store the actual audio
+    // data.
+    ///////////////////////////////////////////////////////////
     xaudioBuffer.AudioBytes = audioData.size;
     xaudioBuffer.pAudioData = audioData.data;
     xaudioBuffer.Flags = XAUDIO2_END_OF_STREAM;
 
 
-    ShowWindow(window, showWindow);
+    ///////////////////////////////////////////////////////////
+    // Show window and start message loop.
+    ///////////////////////////////////////////////////////////
 
-    //////////////////////////////////
+    ShowWindow(window, showWindow);
 
     MSG message;
     while (GetMessage(&message, NULL, 0, 0) > 0) {
@@ -211,6 +264,14 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, 
     return (int) message.wParam;
 }
 
+///////////////////////////////////////////////////////////
+// Load data from a wave file (not very robust, but works
+// for the demo!)
+// NOTE: THIS IS NOT CORRECT WAVE FILE PARSING!!!!
+// Assumes chunk order, which works for the sample file, 
+// but is not generally guaranteed.
+// See: http://soundfile.sapp.org/doc/WaveFormat/
+///////////////////////////////////////////////////////////
 AudioData loadAudioData(void) {
     AudioData result = { 0 };
 
@@ -239,9 +300,6 @@ AudioData loadAudioData(void) {
     DWORD fileFormat;
     DWORD bytesRead = 0;
 
-    // NOTE: THIS IS NOT CORRECT WAVE FILE PARSING!!!!
-    // Assumes chunk order, which works for this file, but is not generally guaranteed.
-    // See: http://soundfile.sapp.org/doc/WaveFormat/
     ReadFile(audioFile, &chunkType, sizeof(DWORD), &bytesRead, NULL);     // RIFF chunk
 
     if (chunkType != 'FFIR') {
